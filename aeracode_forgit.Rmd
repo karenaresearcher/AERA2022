@@ -1,0 +1,240 @@
+---
+title: "aeracode"
+author: "Karen Alexander"
+date: "4/10/2022"
+output: html_document
+---
+
+# Credit for initial code goes to Helwig, N. E. (2017) Adding bias to reduce variance in psychological results: A
+# tutorial on penalized regression. 
+# The Quantitative Methods for Psychology, 13(1), 1-19
+# http://www.tqmp.org/RegularArticles/vol13-1/p001
+
+### data availabe from UCI machine learning repository:
+### https://archive.ics.uci.edu/ml/datasets/Student+Performance
+
+Set your Working directory after setwd
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, results = 'hide')
+setwd
+```
+
+Load Full data set
+Put in your datapath after datapath =
+```{r}
+datapath = 
+student = read.table(datapath, sep=";", header=TRUE)
+head(student, 15)
+```
+
+Install and Load packages
+```{r}
+library(MASS)    
+library(glmnet)  
+library(dplyr)
+library(tidyverse)
+```
+Helwig's Original Work - Full data set - Set data up to Run Models
+```{r}
+y = student$G1
+n = length(y)
+X = model.matrix(~., data=student[,1:30])
+X = X[,-1]
+dim(X)
+```
+
+Correlations
+```{r}
+studentr <- student %>%
+  select(age, Medu, Fedu, traveltime, studytime, failures, famrel, freetime, goout, Dalc, Walc, health, absences, G1)
+head(studentr, 15)
+
+cor <- round(cor(studentr), digits=2)
+cor
+```
+
+OLS linear regression model
+```{r}
+olsmod = lm(y ~ ., data=data.frame(X))
+olsmod.sum = summary(olsmod)
+olsmod.sum
+olscoef = coef(olsmod)
+ix = which(olsmod.sum$coefficients[-1,4] < 0.05)
+pvalmod.05 = lm(y ~ ., data=data.frame(X[,ix]))
+pvalcoef.05 = as(matrix(0, length(olscoef), 1), "dgCMatrix")
+ix = match(names(coef(pvalmod.05)), names(olscoef))
+pvalcoef.05[ix] = coef(pvalmod.05)
+rownames(pvalcoef.05) = names(olscoef)
+ix = which(olsmod.sum$coefficients[-1,4] < 0.15)
+pvalmod.15 = lm(y ~ ., data=data.frame(X[,ix]))
+pvalcoef.15 = as(matrix(0, length(olscoef), 1), "dgCMatrix")
+ix = match(names(coef(pvalmod.15)), names(olscoef))
+pvalcoef.15[ix] = coef(pvalmod.15)
+rownames(pvalcoef.15) = names(olscoef)
+```
+
+Stepwise Regression Model
+```{r}
+stepmod.aic = step(olsmod, trace=0)
+stepcoef.aic = as(matrix(0, length(olscoef), 1), "dgCMatrix")
+ix = match(names(coef(stepmod.aic)), names(olscoef))
+stepcoef.aic[ix] = coef(stepmod.aic)
+rownames(stepcoef.aic) = names(olscoef)
+stepmod.bic = step(olsmod, trace=0, k=log(n))
+stepcoef.bic = as(matrix(0, length(olscoef), 1), "dgCMatrix")
+ix = match(names(coef(stepmod.bic)), names(olscoef))
+stepcoef.bic[ix] = coef(stepmod.bic)
+rownames(stepcoef.bic) = names(olscoef)
+```
+
+Ridge Regression Model
+Set your data path after file = within the ""
+ridge-gcv is the name of the file that you are saving in your filepath
+```{r}
+lamseq = seq(0,300,length=1000)
+ridgemod = lm.ridge(y ~ ., data=data.frame(X), lambda=lamseq)
+plot(ridgemod$lambda, ridgemod$GCV, xlab="Lambda", ylab="GCV")
+lines(rep(lamseq[which.min(ridgemod$GCV)],2), range(ridgemod$GCV), lty=3)
+dev.copy2pdf(file="ridge-gcv.pdf")
+gcvmin = which.min(ridgemod$GCV)
+ridgecoef.min = coef(ridgemod)[gcvmin,]
+```
+
+Lasso Regression Model
+Set your data path after file = within the ""
+lasso-mse is the name of the file that you are saving in your filepath
+```{r}
+set.seed(1)
+foldid = sample(rep(1:10, length.out=n))
+cvlasso = cv.glmnet(X, y, foldid=foldid, alpha=1)
+plot(cvlasso)
+dev.copy2pdf(file="lasso-mse.pdf")
+lassocoef.min = coef(cvlasso, s="lambda.min")
+lassocoef.1se = coef(cvlasso, s="lambda.1se")
+```
+
+Elastic Net Regression Model
+Set your data path after file = within the ""
+enet-mse is the name of the file that you are saving in your filepath
+```{r}
+set.seed(1)
+foldid = sample(rep(1:10, length.out=n))
+alphaseq = seq(0,1,length=21)
+cvlist = vector("list",length(alphaseq))
+for(k in 1:length(alphaseq)){
+  cvlist[[k]] = cv.glmnet(X, y, foldid=foldid, alpha=alphaseq[k])
+}
+
+par(mfrow=c(2,1))
+mincv = sapply(cvlist, function(x) min(x$cvm))
+plot(alphaseq, mincv, xlab="Alpha", ylab="Mean-Squared Error", type="b")
+
+minid = which.min(mincv)
+minid
+alphaseq[minid]
+
+
+plot(cvlist[[minid]])
+dev.copy2pdf(file="enet-mse.pdf")
+enetcoef.min = coef(cvlist[[minid]], s="lambda.min")
+enetcoef.1se = coef(cvlist[[minid]], s="lambda.1se")
+```
+
+Coefficient Tables
+```{r}
+utab = round(cbind(olscoef,pvalcoef.05,pvalcoef.15,stepcoef.aic,stepcoef.bic),3)
+colnames(utab) = c("ols","p0.05","p0.15","step.aic","step.bic")
+utab
+
+ptab = round(cbind(ridgecoef.min,lassocoef.min,lassocoef.1se,enetcoef.min,enetcoef.1se),3)
+colnames(ptab) = c("ridgecoef","lasso.min","lasso.1se","enet.min","enet.1se")
+ptab
+```
+
+Simulation
+```{r}
+nrep = 100
+methods = factor(c("ols","p0.05","p0.15","step.aic","step.bic",
+                   "ridge","lasso.min","lasso.1se","enet.min","enet.1se"),
+                 ordered=TRUE, levels=c("ols","p0.05","p0.15","step.aic","step.bic",
+                                        "ridge","lasso.min","lasso.1se","enet.min","enet.1se"))
+msetab = matrix(0, nrep, length(methods))
+lamseq = seq(0, 300, length=1000)
+alphaseq = seq(0, 1, length=21)
+
+set.seed(55455)
+for(i in 1:nrep){
+  
+  cat("rep:",i,"\n")
+  
+  testID = sample.int(n, 95L)
+  ytest = y[testID]
+  Xtest = X[testID,]
+  ytrain = y[-testID]
+  Xtrain = X[-testID,]
+  
+  olsmod = lm(ytrain ~ ., data=data.frame(Xtrain))
+  msetab[i,1] = mean( (ytest - cbind(1,Xtest) %*% coef(olsmod))^2 )
+  
+  olsmod.sum = summary(olsmod)
+  ix = which(olsmod.sum$coefficients[-1,4] < 0.05)
+  p05mod = lm(ytrain ~ ., data=data.frame(Xtrain[,ix]))
+  msetab[i,2] = mean( (ytest - cbind(1,Xtest[,ix]) %*% coef(p05mod))^2 )
+  
+  ix = which(olsmod.sum$coefficients[-1,4] < 0.15)
+  p15mod = lm(ytrain ~ ., data=data.frame(Xtrain[,ix]))
+  msetab[i,3] = mean( (ytest - cbind(1,Xtest[,ix]) %*% coef(p15mod))^2 )
+  
+  stepmod = step(olsmod, trace=0)
+  ix = match(names(stepmod$coefficients),names(olsmod$coefficients))
+  msetab[i,4] = mean( (ytest - cbind(1,Xtest)[,ix] %*% coef(stepmod))^2 )
+  
+  stepmod = step(olsmod, trace=0, k=log(length(ytrain)))
+  ix = match(names(stepmod$coefficients),names(olsmod$coefficients))
+  msetab[i,5] = mean( (ytest - cbind(1,Xtest)[,ix] %*% coef(stepmod))^2 )
+  
+  ridgemod = lm.ridge(ytrain ~ ., data=data.frame(Xtrain), lambda=lamseq)
+  gcvmin = which.min(ridgemod$GCV)
+  msetab[i,6] = mean( (ytest - cbind(1,Xtest) %*% coef(ridgemod)[gcvmin,])^2 )
+  
+  foldid = sample(rep(1:10, length.out=length(ytrain)))
+  
+  cvlasso = cv.glmnet(Xtrain, ytrain, foldid=foldid, alpha=1)
+  msetab[i,7] = mean( (ytest - cbind(1,Xtest) %*% coef(cvlasso, s="lambda.min"))^2 )
+  msetab[i,8] = mean( (ytest - cbind(1,Xtest) %*% coef(cvlasso, s="lambda.1se"))^2 )
+  
+  cvlist = vector("list",length(alphaseq))
+  for(k in 1:length(alphaseq)){
+    cvlist[[k]] = cv.glmnet(Xtrain, ytrain, foldid=foldid, alpha=alphaseq[k])
+  }
+  minid = which.min(sapply(cvlist, function(x) min(x$cvm)))
+  msetab[i,9] = mean( (ytest - cbind(1,Xtest) %*% coef(cvlist[[minid]], s="lambda.min"))^2 )
+  msetab[i,10] = mean( (ytest - cbind(1,Xtest) %*% coef(cvlist[[minid]], s="lambda.1se"))^2 )
+  
+}
+```
+
+Mean Squared Prediction Error box plots
+Set your data path after file = within the ""
+box-mse is the name of the file that you are saving in your filepath
+```{r}
+library(RColorBrewer)
+Methods = rep(methods, each=nrep)
+MSE = c(msetab)
+colors = brewer.pal(10, "Set3")
+boxplot(MSE ~ Methods, col=colors, xlab="Methods", ylab="Mean-Squared Error", ylim=c(6,12))
+for(j in c(7,9,11)) lines(c(0,11), c(j,j), lty=3)
+dev.copy2pdf(file="C:/Users/kglue/Desktop/R Stuff/Github/aera2022/box-mse.pdf")
+
+meanmse = apply(msetab,2,mean)
+names(meanmse) = methods
+meanmse
+
+best = apply(msetab, 1, which.min)
+prctbest = summary(factor(best))
+names(prctbest) = methods
+prctbest
+
+colnames(msetab) = levels(methods)
+msetab[1,]
+```
