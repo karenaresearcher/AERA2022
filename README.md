@@ -12,3 +12,5 @@ The Quantitative Methods for Psychology, 13(1), 1-19. https://doi.org/10.20982/t
 
 The original dataset is available at: https://archive.ics.uci.edu/ml/datasets/Student+Performance 
 The original dataset was used for the following article: Cortez, P., & Silva, A. (2008). Using Data Mining to Predict Secondary School Student Performance. In A. Brito & J. Teixeira (Eds.), Proceedings of the 5th Future Business Technology Conference (pp. 5–12). https://repositorium.sdum.uminho.pt/handle/1822/8024
+
+Appendix A contains information for each variable from the original dataset.
